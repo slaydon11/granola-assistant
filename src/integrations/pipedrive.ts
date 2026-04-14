@@ -277,7 +277,8 @@ export function pipedriveAnthropicTools(): Anthropic.Tool[] {
     },
     {
       name: 'pipedrive_get_deal',
-      description: 'Get one deal by id.',
+      description:
+        'Get one deal by id (value, currency, stage, custom fields for fee/GTV, org/person). Use before economics coaching.',
       input_schema: {
         type: 'object',
         properties: { deal_id: { type: 'number' } },
@@ -301,7 +302,7 @@ export function pipedriveAnthropicTools(): Anthropic.Tool[] {
     {
       name: 'pipedrive_add_deal_note',
       description:
-        'Add a note to a deal timeline. Plain text is converted to safe HTML. Use when Sam logs context from iMessage.',
+        'Written deal note only (recap, context). Not for calls/meetings/tasks — use pipedrive_create_activity for calendar-style items. Plain text becomes safe HTML.',
       input_schema: {
         type: 'object',
         properties: {
@@ -315,7 +316,7 @@ export function pipedriveAnthropicTools(): Anthropic.Tool[] {
     {
       name: 'pipedrive_create_activity',
       description:
-        'Create an activity on a deal (call, meeting, task, email, deadline, lunch). Optional due_date YYYY-MM-DD, due_time HH:MM, done for completed logs.',
+        'Create a Pipedrive activity on a deal. Required when Sam logs a call, meeting, or task (never substitute a note). Types: call, meeting, task, email, deadline, lunch. due_date / due_time optional; done true if already completed.',
       input_schema: {
         type: 'object',
         properties: {
