@@ -94,43 +94,66 @@ app.post(
       return;
     }
 
-    const chatInfo = await getChat(chatId);
-    const isGroupChat = chatInfo.handles.length > 2;
-    const participantNames = chatInfo.handles.map(h => h.handle);
+    try {
+      const chatInfo = await getChat(chatId);
+      const isGroupChat = chatInfo.handles.length > 2;
+      const participantNames = chatInfo.handles.map(h => h.handle);
 
-    const { text: responseText, reaction } = await chat(chatId, text, {
-      isGroupChat,
-      participantNames,
-      chatName: chatInfo.display_name,
-      senderHandle: from,
-      service,
-      baseUrl: publicBaseUrl,
-    });
-    console.log(`[timing] claude: ${Date.now() - start}ms`);
+      const { text: responseText, reaction } = await chat(chatId, text, {
+        isGroupChat,
+        participantNames,
+        chatName: chatInfo.display_name,
+        senderHandle: from,
+        service,
+        baseUrl: publicBaseUrl,
+      });
+      console.log(`[timing] claude: ${Date.now() - start}ms`);
 
-    // Send reaction
-    if (reaction) {
-      await sendReaction(messageId, reaction);
-    }
-
-    // Send text response
-    if (responseText) {
-      const messages = responseText.split('---').map(m => cleanResponse(m)).filter(m => m.length > 0);
-      const replyTo = incomingReplyTo ? { message_id: messageId } : undefined;
-
-      for (let i = 0; i < messages.length; i++) {
-        const messageReplyTo = (i === 0) ? replyTo : undefined;
-        await sendMessage(chatId, messages[i], undefined, messageReplyTo);
-
-        if (i < messages.length - 1) {
-          const delay = 400 + Math.random() * 400;
-          await new Promise(r => setTimeout(r, delay));
-        }
+      if (reaction) {
+        await sendReaction(messageId, reaction);
       }
-      console.log(`[timing] sent ${messages.length} msg(s): ${Date.now() - start}ms`);
-    }
 
-    console.log(`[main] Done processing ${from}`);
+      const messages = responseText?.trim()
+        ? responseText.split('---').map(m => cleanResponse(m)).filter(m => m.length > 0)
+        : [];
+
+      if (messages.length > 0) {
+        const replyTo = incomingReplyTo ? { message_id: messageId } : undefined;
+
+        for (let i = 0; i < messages.length; i++) {
+          const messageReplyTo = i === 0 ? replyTo : undefined;
+          await sendMessage(chatId, messages[i], undefined, messageReplyTo);
+
+          if (i < messages.length - 1) {
+            const delay = 400 + Math.random() * 400;
+            await new Promise(r => setTimeout(r, delay));
+          }
+        }
+        console.log(`[timing] sent ${messages.length} msg(s): ${Date.now() - start}ms`);
+      } else if (!reaction) {
+        await sendMessage(
+          chatId,
+          "I didn't get a text reply from the model — try again. If this keeps happening, check server logs and ANTHROPIC_API_KEY.",
+        );
+        console.warn(`[main] Empty assistant reply for ${from}`);
+      }
+
+      console.log(`[main] Done processing ${from}`);
+    } catch (error) {
+      console.error(`[main] Webhook handler error for ${from}:`, error);
+      const hint =
+        error instanceof Error && error.message
+          ? error.message.slice(0, 120)
+          : 'unknown error';
+      try {
+        await sendMessage(
+          chatId,
+          `Something failed on the assistant server (${hint}). Check deploy logs, ANTHROPIC_API_KEY, and Linq token.`,
+        );
+      } catch (sendErr) {
+        console.error('[main] Could not send error message to user:', sendErr);
+      }
+    }
   })
 );
 
