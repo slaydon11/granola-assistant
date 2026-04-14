@@ -302,7 +302,7 @@ export function pipedriveAnthropicTools(): Anthropic.Tool[] {
     {
       name: 'pipedrive_add_deal_note',
       description:
-        'System of record for meeting recap on the deal: summaries, key discussion points, decisions, action items, and transcript highlights Sam wants kept on the account. Use the correct deal_id (search/get first). Do not try to store this content in Granola. Plain text becomes safe HTML.',
+        'Deal **Notes** (separate from Activities): long meeting recaps, multi-paragraph narrative, decisions, and transcript highlights Sam wants in the note stream. Do **not** use for SMS/iMessage/text pings or discrete “we messaged / they asked X” touchpoints — those belong in pipedrive_create_activity (type task) so they show as real activities with a subject + note. Use correct deal_id (search/get first). Plain text becomes safe HTML.',
       input_schema: {
         type: 'object',
         properties: {
@@ -316,7 +316,7 @@ export function pipedriveAnthropicTools(): Anthropic.Tool[] {
     {
       name: 'pipedrive_create_activity',
       description:
-        'Create a calendar-style Pipedrive activity on a deal (scheduled call, future meeting block, task with due date, etc.). For rich meeting write-ups and narrative context, use pipedrive_add_deal_note instead. Types: call, meeting, task, email, deadline, lunch. due_date / due_time optional; done true if already completed.',
+        'Create a Pipedrive **Activity** on the deal (shows on the activity timeline). For SMS/iMessage/text exchanges, teammate pings (e.g. Stephanie asking what Sam needs), or any discrete logged touchpoint: use type **task**, a short **subject** (e.g. "Text — Stephanie re integration docs"), put the full context in **note**, and set **done: true** if it already happened. For phone calls use type **call** with done true when logging after the fact. For scheduled work use **task** with due_date. For long multi-paragraph meeting recaps only, use pipedrive_add_deal_note instead. Types: call, meeting, task, email, deadline, lunch. due_date / due_time optional.',
       input_schema: {
         type: 'object',
         properties: {
@@ -326,7 +326,10 @@ export function pipedriveAnthropicTools(): Anthropic.Tool[] {
             type: 'string',
             enum: ['call', 'meeting', 'task', 'email', 'deadline', 'lunch'],
           },
-          note: { type: 'string' },
+          note: {
+            type: 'string',
+            description: 'Activity body / what happened — use for text-thread details, not only for calendar events',
+          },
           due_date: { type: 'string' },
           due_time: { type: 'string' },
           duration: { type: 'string' },

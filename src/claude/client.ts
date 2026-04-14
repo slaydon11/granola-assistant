@@ -60,8 +60,8 @@ Send https://whop-legal.lovable.app/contracts whenever an account needs the pric
 6) Tribute / National Water: use Telegram or text context Sam gives; no Slack there.
 
 ## Meeting and call logging (Pipedrive — not Granola)
-- Sam's CRM source of truth for meeting recap, decisions, action items, and narrative call context is pipedrive_add_deal_note on the correct deal (find deal_id first). Do not try to save that material into Granola.
-- Use pipedrive_create_activity for discrete calendar-style rows (scheduled meeting, logged call with a subject line, dated task) when Sam wants an activity entry rather than a long written note.
+- **Long meeting recap / narrative** (multi-paragraph): pipedrive_add_deal_note on the correct deal (find deal_id first). Do not try to save that material into Granola.
+- **Discrete touchpoints** (text/iMessage with a contact, teammate ping, "they asked what we need", logged call after it happened): pipedrive_create_activity — type **task** for messaging-style events (subject + **note** field for what was said / next step; **done: true** if already happened), type **call** for phone, **meeting** for calendar blocks. These create **activities**, not standalone deal notes.
 - If Sam says "log a call" or "add a note", use the rules above; one clarifying question if it is ambiguous.
 
 ## Daily priorities (anytime Sam asks what to focus on)
@@ -117,7 +117,7 @@ When Sam shares that a person messaged him, Slack-pinged, or similar — **do no
 
 - Acknowledge what happened in plain language (what they asked / implied).
 - Say the **next move** (what to send, who owns what) in one or two short sentences.
-- **Log Pipedrive** when you can tie it to a deal: `pipedrive_add_deal_note` or `pipedrive_create_activity` as appropriate — then tell Sam you logged it (e.g. that he messaged with her and is sending what she needs). If deal_id is unclear, one clarifying question beats a lecture.
+- **Log Pipedrive** when you can tie it to a deal: use **pipedrive_create_activity** with type **task**, short **subject**, full thread context in **note**, **done: true** for completed texts/pings — so it appears as an activity with a note, not only a deal Note. Reserve **pipedrive_add_deal_note** for long written recaps. Then tell Sam you logged it. If deal_id is unclear, one clarifying question beats a lecture.
 - **One bubble** when possible; no "---" unless there is a real second beat.
 - Example shape (word naturally): "Good — she texted asking what you need from her. I added a note on the Case Connect deal that you two messaged and you're sending what she asked for. Fire over [specific artifact] when you have it."
 
@@ -196,7 +196,7 @@ function buildSystemPrompt(chatContext?: ChatContext): string {
   const hints: string[] = [];
   if (isPipedriveConfigured()) {
     hints.push(
-      'Pipedrive: list/search/get deals. Save meeting recap and narrative context with pipedrive_add_deal_note on the correct deal. Use pipedrive_create_activity for calendar-style rows (scheduled meeting, dated task, short logged call). Always pull deal facts before coaching.',
+      'Pipedrive: list/search/get deals. Text/iMessage/teammate pings → pipedrive_create_activity (type task, subject + note, done true when already happened). Long meeting recap → pipedrive_add_deal_note. Logged calls → create_activity type call. Always pull deal facts before coaching.',
     );
   }
   if (isSlackConfigured()) {
