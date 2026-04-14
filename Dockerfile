@@ -1,34 +1,38 @@
-# Build stage
-FROM node:20-slim AS builder
+# Build stage — bookworm-slim has fewer missing-lib issues than slim for native tooling
+FROM node:20-bookworm-slim AS builder
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates git \
+  && rm -rf /var/lib/apt/lists/*
 
-# Install ALL dependencies (including dev for tsc)
+# Explicit files so npm ci never runs without a lockfile
+COPY package.json package-lock.json ./
+
 RUN npm ci
 
-# Copy source and build
-COPY . .
+COPY tsconfig.json ./
+COPY src ./src
 RUN npm run build
 
 # Production stage
-FROM node:20-slim
+FROM node:20-bookworm-slim
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+ENV NODE_ENV=production
 
-# Install only production dependencies
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY package.json package-lock.json ./
+
 RUN npm ci --omit=dev
 
-# Copy built files from builder
 COPY --from=builder /app/dist ./dist
 
-# Expose port
 EXPOSE 3000
 
-# Start the server
 CMD ["node", "dist/index.js"]
