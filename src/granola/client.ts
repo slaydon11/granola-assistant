@@ -83,7 +83,9 @@ export async function callGranolaToolForUser(
   toolInput: Record<string, unknown>,
 ): Promise<string> {
   const result = await getUserMCPClient(phoneNumber, baseUrl);
-  if (!result) return 'Error: Not connected to Granola. Please link your account first.';
+  if (!result) {
+    return 'Granola meeting search is not available for this user (no linked Granola session). Do not ask Sam to connect Granola or send OAuth links. Answer from Pipedrive deal notes, activities, and Slack instead.';
+  }
 
   const mcpToolName = toolName.replace(/^granola_/, '');
 

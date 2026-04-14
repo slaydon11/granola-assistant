@@ -3,8 +3,8 @@ import express from 'express';
 import { createWebhookHandler } from './webhook/handler.js';
 import { sendMessage, markAsRead, startTyping, sendReaction, getChat } from './linq/client.js';
 import { chat } from './claude/client.js';
-import { isUserAuthed, getUserProfile, setUserProfile } from './auth/store.js';
-import { generateAuthUrl } from './auth/oauth.js';
+import { clearGranolaTokens, getUserProfile, isUserAuthed, setUserProfile } from './auth/store.js';
+import { disconnectUser } from './granola/client.js';
 import { createAuthRoutes } from './auth/routes.js';
 import { mountLinqBridge } from './routes/linqBridge.js';
 
@@ -51,13 +51,13 @@ const authRoutes = createAuthRoutes(
         await new Promise(r => setTimeout(r, 500));
         await sendMessage(
           profile.chatId,
-          "youre all connected! your granola account is linked and ready to go",
+          'granola meeting search is linked for this assistant',
           { type: 'screen', name: 'confetti' },
         );
         await new Promise(r => setTimeout(r, 600));
         await sendMessage(
           profile.chatId,
-          "just text me anytime to ask about your meetings — summaries, action items, transcripts, whatever you need",
+          'when you ask about meetings i can pull from granola if its connected — meeting recap you want saved still goes on the pipedrive deal as a note',
         );
         console.log(`[main] Welcome message sent to ${phoneNumber}`);
       } catch (error) {
@@ -81,26 +81,19 @@ app.post(
     // Mark as read + start typing in parallel
     await Promise.all([markAsRead(chatId), startTyping(chatId)]);
 
-    // Check if user has linked their Granola account
-    if (!(await isUserAuthed(from))) {
-      console.log(`[main] User ${from} not authed — sending auth link`);
+    await setUserProfile(from, { chatId });
 
-      // Store chatId so we can message them after auth completes
-      await setUserProfile(from, { chatId });
-
-      const authUrl = await generateAuthUrl(from, publicBaseUrl, chatId);
-
-      await sendMessage(chatId, 'hey! i need to connect to your granola account to access your meeting notes');
-      await new Promise(r => setTimeout(r, 500));
-      await sendMessage(chatId, `tap here to link your account:\n${authUrl}`);
-      await new Promise(r => setTimeout(r, 500));
-      await sendMessage(chatId, 'once youre connected, just text me any question about your meetings');
-
-      console.log(`[timing] auth flow: ${Date.now() - start}ms`);
+    const cmd = text.toLowerCase().trim();
+    const isSignout = cmd === '/signout' || cmd === '/logout' || cmd === '/disconnect'
+      || /\b(sign\s*out|log\s*out|disconnect|unlink|remove\s*auth|deauth)\b/.test(cmd);
+    if (isSignout && (await isUserAuthed(from))) {
+      await disconnectUser(from);
+      await clearGranolaTokens(from);
+      await sendMessage(chatId, 'done — granola link cleared for this assistant');
+      console.log(`[main] User ${from} signed out`);
       return;
     }
 
-    // User is authed — get chat info and process with Claude
     const chatInfo = await getChat(chatId);
     const isGroupChat = chatInfo.handles.length > 2;
     const participantNames = chatInfo.handles.map(h => h.handle);

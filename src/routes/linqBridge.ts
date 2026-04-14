@@ -5,8 +5,8 @@
 import type { Express, Request, Response } from 'express';
 import { getChat } from '../linq/client.js';
 import { chat } from '../claude/client.js';
-import { isUserAuthed, setUserProfile } from '../auth/store.js';
-import { generateAuthUrl } from '../auth/oauth.js';
+import { clearGranolaTokens, isUserAuthed, setUserProfile } from '../auth/store.js';
+import { disconnectUser } from '../granola/client.js';
 
 export type LinqBridgeV1Body = {
   schema: 'linq-bridge.v1';
@@ -61,24 +61,17 @@ export function mountLinqBridge(app: Express, getPublicBaseUrl: () => string): v
     }
 
     const baseUrl = getPublicBaseUrl().trim();
-    if (!baseUrl) {
-      res.status(503).json({
-        error: 'server_misconfigured',
-        detail: 'Set BASE_URL or RENDER_EXTERNAL_URL (or PUBLIC_BASE_URL) on this assistant so Granola OAuth links work.',
-      });
-      return;
-    }
 
     try {
-      if (!(await isUserAuthed(from))) {
-        await setUserProfile(from, { chatId });
-        const authUrl = await generateAuthUrl(from, baseUrl, chatId);
-        const messages = [
-          'hey! i need to connect to your granola account for meeting notes',
-          `tap here to link your account:\n${authUrl}`,
-          'once youre connected, ask me about deals (pipedrive), slack, or meetings',
-        ];
-        res.json({ messages });
+      await setUserProfile(from, { chatId });
+
+      const cmd = text.toLowerCase().trim();
+      const isSignout = cmd === '/signout' || cmd === '/logout' || cmd === '/disconnect'
+        || /\b(sign\s*out|log\s*out|disconnect|unlink|remove\s*auth|deauth)\b/.test(cmd);
+      if (isSignout && (await isUserAuthed(from))) {
+        await disconnectUser(from);
+        await clearGranolaTokens(from);
+        res.json({ text: 'done — granola link cleared for this assistant' });
         return;
       }
 
@@ -100,7 +93,7 @@ export function mountLinqBridge(app: Express, getPublicBaseUrl: () => string): v
         chatName: chatInfo.display_name,
         senderHandle: from,
         service: (body.service as 'iMessage' | 'SMS' | 'RCS' | undefined) || undefined,
-        baseUrl,
+        baseUrl: baseUrl || '',
       });
 
       if (!responseText?.trim()) {

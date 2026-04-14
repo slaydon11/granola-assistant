@@ -2,7 +2,15 @@
  * Granola OAuth 2.0 with Dynamic Client Registration + PKCE.
  */
 import crypto from 'node:crypto';
-import { getPendingAuth, setPendingAuth, clearPendingAuth, setGranolaTokens, setJustOnboarded, setUserProfile } from './store.js';
+import {
+  canonicalUserId,
+  getPendingAuth,
+  setPendingAuth,
+  clearPendingAuth,
+  setGranolaTokens,
+  setJustOnboarded,
+  setUserProfile,
+} from './store.js';
 
 const AUTH_SERVER = 'https://mcp-auth.granola.ai';
 const MCP_RESOURCE = 'https://mcp.granola.ai/mcp';
@@ -97,12 +105,13 @@ function generatePKCE(): { verifier: string; challenge: string } {
  * Generate the Granola OAuth URL for a user and store the PKCE verifier.
  */
 export async function generateAuthUrl(phoneNumber: string, baseUrl: string, chatId?: string): Promise<string> {
+  const phone = canonicalUserId(phoneNumber);
   const callbackUrl = getCallbackUrl(baseUrl);
   const client = await ensureClientRegistered(callbackUrl);
   const pkce = generatePKCE();
 
   // Store PKCE verifier + client info (with TTL)
-  await setPendingAuth(phoneNumber, {
+  await setPendingAuth(phone, {
     codeVerifier: pkce.verifier,
     clientId: client.clientId,
     clientSecret: client.clientSecret,
@@ -111,7 +120,7 @@ export async function generateAuthUrl(phoneNumber: string, baseUrl: string, chat
 
   // Store user profile with chatId
   if (chatId) {
-    await setUserProfile(phoneNumber, { chatId });
+    await setUserProfile(phone, { chatId });
   }
 
   const params = new URLSearchParams({
@@ -120,13 +129,13 @@ export async function generateAuthUrl(phoneNumber: string, baseUrl: string, chat
     redirect_uri: callbackUrl,
     code_challenge: pkce.challenge,
     code_challenge_method: 'S256',
-    state: signState(phoneNumber),
+    state: signState(phone),
     scope: 'openid email profile offline_access',
     resource: MCP_RESOURCE,
   });
 
   const url = `${AUTH_SERVER}/oauth2/authorize?${params.toString()}`;
-  console.log(`[oauth] Auth URL generated for ${phoneNumber}`);
+  console.log(`[oauth] Auth URL generated for ${phone}`);
   return url;
 }
 
@@ -138,8 +147,9 @@ export async function exchangeCodeForTokens(
   phoneNumber: string,
   baseUrl: string,
 ): Promise<{ success: boolean; error?: string }> {
+  const phone = canonicalUserId(phoneNumber);
   const callbackUrl = getCallbackUrl(baseUrl);
-  const pending = await getPendingAuth(phoneNumber);
+  const pending = await getPendingAuth(phone);
 
   if (!pending) {
     return { success: false, error: 'No pending auth for this phone number' };
@@ -163,7 +173,7 @@ export async function exchangeCodeForTokens(
     body.client_secret = client.clientSecret;
   }
 
-  console.log(`[oauth] Exchanging code for tokens (user: ${phoneNumber})...`);
+  console.log(`[oauth] Exchanging code for tokens (user: ${phone})...`);
 
   const response = await fetch(`${AUTH_SERVER}/oauth2/token`, {
     method: 'POST',
@@ -184,19 +194,19 @@ export async function exchangeCodeForTokens(
   };
 
   // Store tokens encrypted
-  await setGranolaTokens(phoneNumber, {
+  await setGranolaTokens(phone, {
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token,
     expiresAt: tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : undefined,
   });
 
   // Clean up pending auth
-  await clearPendingAuth(phoneNumber);
+  await clearPendingAuth(phone);
 
   // Set just-onboarded flag (for welcome flow)
-  await setJustOnboarded(phoneNumber);
+  await setJustOnboarded(phone);
 
-  console.log(`[oauth] Tokens received for ${phoneNumber} (expires in ${tokens.expires_in}s)`);
+  console.log(`[oauth] Tokens received for ${phone} (expires in ${tokens.expires_in}s)`);
   return { success: true };
 }
 
@@ -204,6 +214,7 @@ export async function exchangeCodeForTokens(
  * Refresh an expired access token.
  */
 export async function refreshAccessToken(phoneNumber: string, baseUrl: string, currentRefreshToken: string): Promise<boolean> {
+  const phone = canonicalUserId(phoneNumber);
   const callbackUrl = getCallbackUrl(baseUrl);
   const client = await ensureClientRegistered(callbackUrl);
 
@@ -217,7 +228,7 @@ export async function refreshAccessToken(phoneNumber: string, baseUrl: string, c
     body.client_secret = client.clientSecret;
   }
 
-  console.log(`[oauth] Refreshing token for ${phoneNumber}...`);
+  console.log(`[oauth] Refreshing token for ${phone}...`);
 
   const response = await fetch(`${AUTH_SERVER}/oauth2/token`, {
     method: 'POST',
@@ -236,12 +247,12 @@ export async function refreshAccessToken(phoneNumber: string, baseUrl: string, c
     expires_in?: number;
   };
 
-  await setGranolaTokens(phoneNumber, {
+  await setGranolaTokens(phone, {
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token,
     expiresAt: tokens.expires_in ? Date.now() + tokens.expires_in * 1000 : undefined,
   });
 
-  console.log(`[oauth] Token refreshed for ${phoneNumber}`);
+  console.log(`[oauth] Token refreshed for ${phone}`);
   return true;
 }

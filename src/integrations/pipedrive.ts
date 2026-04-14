@@ -302,7 +302,7 @@ export function pipedriveAnthropicTools(): Anthropic.Tool[] {
     {
       name: 'pipedrive_add_deal_note',
       description:
-        'Written deal note only (recap, context). Not for calls/meetings/tasks — use pipedrive_create_activity for calendar-style items. Plain text becomes safe HTML.',
+        'System of record for meeting recap on the deal: summaries, key discussion points, decisions, action items, and transcript highlights Sam wants kept on the account. Use the correct deal_id (search/get first). Do not try to store this content in Granola. Plain text becomes safe HTML.',
       input_schema: {
         type: 'object',
         properties: {
@@ -316,7 +316,7 @@ export function pipedriveAnthropicTools(): Anthropic.Tool[] {
     {
       name: 'pipedrive_create_activity',
       description:
-        'Create a Pipedrive activity on a deal. Required when Sam logs a call, meeting, or task (never substitute a note). Types: call, meeting, task, email, deadline, lunch. due_date / due_time optional; done true if already completed.',
+        'Create a calendar-style Pipedrive activity on a deal (scheduled call, future meeting block, task with due date, etc.). For rich meeting write-ups and narrative context, use pipedrive_add_deal_note instead. Types: call, meeting, task, email, deadline, lunch. due_date / due_time optional; done true if already completed.',
       input_schema: {
         type: 'object',
         properties: {

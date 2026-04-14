@@ -10,9 +10,9 @@
  */
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
-import { exchangeCodeForTokens, verifyState, getCallbackUrl } from '../auth/oauth.js';
+import { exchangeCodeForTokens, verifyState } from '../auth/oauth.js';
 import { isUserAuthed, getUserProfile, setUserProfile, clearGranolaTokens } from '../auth/store.js';
-import { generateAuthUrl } from '../auth/oauth.js';
+import { disconnectUser } from '../granola/client.js';
 import { sendMessage, markAsRead, startTyping } from '../linq/client.js';
 import {
   extractEventFields,
@@ -70,8 +70,8 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
       if (profile?.chatId) {
         try {
           await startTyping(profile.chatId);
-          await sendMessage(profile.chatId, "youre all connected! your granola account is linked and ready to go", { type: 'screen', name: 'confetti' });
-          await sendMessage(profile.chatId, "just text me anytime to ask about your meetings — summaries, action items, transcripts, whatever you need");
+          await sendMessage(profile.chatId, 'granola meeting search is linked for this assistant', { type: 'screen', name: 'confetti' });
+          await sendMessage(profile.chatId, 'when you ask about meetings i can pull from granola if its connected — meeting recap you want saved still goes on the pipedrive deal as a note');
         } catch (err) {
           console.error('[receiver] Failed to send welcome message:', err);
         }
@@ -120,22 +120,14 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     const isSignout = cmd === '/signout' || cmd === '/logout' || cmd === '/disconnect'
       || /\b(sign\s*out|log\s*out|disconnect|unlink|remove\s*auth|deauth)\b/.test(cmd);
     if (isSignout && await isUserAuthed(from)) {
+      await disconnectUser(from);
       await clearGranolaTokens(from);
-      await sendMessage(chatId, "done — your granola account has been disconnected. text me anytime to reconnect");
+      await sendMessage(chatId, 'done — granola link cleared for this assistant');
       console.log(`[receiver] User ${from} signed out`);
       return { statusCode: 200, body: '{"action":"signed_out"}' };
     }
 
-    // If user isn't authed, send auth link directly (no need to enqueue)
-    if (!(await isUserAuthed(from))) {
-      console.log(`[receiver] User ${from} not authed — sending auth link`);
-      await setUserProfile(from, { chatId });
-      const authUrl = await generateAuthUrl(from, BASE_URL, chatId);
-      await sendMessage(chatId, 'hey! i need to connect to your granola account to access your meeting notes');
-      await sendMessage(chatId, `tap here to link your account:\n${authUrl}`);
-      await sendMessage(chatId, 'once youre connected, just text me any question about your meetings');
-      return { statusCode: 200, body: '{"action":"auth_link_sent"}' };
-    }
+    await setUserProfile(from, { chatId });
 
     // Enqueue to SQS for processing
     await sqs.send(new SendMessageCommand({

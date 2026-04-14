@@ -3,7 +3,7 @@
  */
 import { Router, Request, Response } from 'express';
 import { exchangeCodeForTokens, verifyState } from './oauth.js';
-import { isUserAuthed } from './store.js';
+import { canonicalUserId, isUserAuthed } from './store.js';
 
 type OnAuthComplete = (phoneNumber: string) => Promise<void> | void;
 
@@ -248,7 +248,7 @@ export function createAuthRoutes(getBaseUrl: () => string, onAuthComplete?: OnAu
 
       // Send welcome message via iMessage (non-blocking)
       if (onAuthComplete) {
-        Promise.resolve(onAuthComplete(phoneNumber)).catch(() => {});
+        Promise.resolve(onAuthComplete(canonicalUserId(phoneNumber))).catch(() => {});
       }
 
       res.status(200).send(SUCCESS_PAGE);
@@ -258,9 +258,14 @@ export function createAuthRoutes(getBaseUrl: () => string, onAuthComplete?: OnAu
     }
   });
 
-  router.get('/auth/status/:phone', (req: Request, res: Response) => {
-    const phone = String(req.params.phone);
-    res.json({ phone, authed: isUserAuthed(phone) });
+  router.get('/auth/status/:phone', async (req: Request, res: Response, next) => {
+    try {
+      const phone = canonicalUserId(String(req.params.phone));
+      const authed = await isUserAuthed(phone);
+      res.json({ phone, authed });
+    } catch (e) {
+      next(e);
+    }
   });
 
   return router;
