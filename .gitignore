@@ -1,0 +1,18 @@
+node_modules/
+dist/
+.env
+.granola-tokens.json
+samconfig.toml
+dist/
+*.log
+*.png
+
+# Local dev notes (contains internal ARNs, phone numbers, etc.)
+CLAUDE.md
+
+# Codex local configuration
+.codex/
+
+# OpenAPI spec (get latest from https://apidocs.linqapp.com)
+linqV3api.yaml
+node_modules/
