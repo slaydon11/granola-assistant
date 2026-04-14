@@ -70,6 +70,62 @@ async function fetchV1(
   return parsed;
 }
 
+function num(v: unknown): number | undefined {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string' && v.trim() && Number.isFinite(Number(v))) return Number(v);
+  return undefined;
+}
+
+async function pipedrivePostJson(
+  version: 1 | 2,
+  apiPath: string,
+  body: Record<string, unknown>,
+): Promise<unknown> {
+  const cfg = getConfig();
+  if (!cfg) return { success: false, error: 'Pipedrive not configured' };
+  const base = version === 1 ? cfg.baseV1 : cfg.baseV2;
+  const path = apiPath.startsWith('/') ? apiPath : `/${apiPath}`;
+  const url = `${base}${path}`;
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'x-api-token': cfg.token,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const raw = await res.text();
+  let parsed: unknown;
+  try {
+    parsed = raw.length ? JSON.parse(raw) : {};
+  } catch {
+    return { success: false, error: 'Invalid JSON from Pipedrive', status: res.status };
+  }
+  if (!res.ok) {
+    const err = (parsed as { error?: string })?.error;
+    return { success: false, error: err || `HTTP ${res.status}`, data: parsed };
+  }
+  return parsed;
+}
+
+function escapeHtmlPlain(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function noteContentToHtml(content: string): string {
+  const trimmed = content.trim().slice(0, 95000);
+  if (trimmed.startsWith('<')) return trimmed;
+  const paras = trimmed.split(/\n{2,}/).map((p) => `<p>${escapeHtmlPlain(p).replace(/\n/g, '<br/>')}</p>`);
+  return paras.join('');
+}
+
 function slimDeal(d: Record<string, unknown>): Record<string, unknown> {
   return {
     id: d.id,
@@ -118,8 +174,8 @@ export async function runPipedriveTool(name: string, input: unknown): Promise<st
         return JSON.stringify(summarizeList(raw, limit));
       }
       case 'pipedrive_get_deal': {
-        const id = Number(args.deal_id);
-        if (!Number.isFinite(id) || id <= 0) return JSON.stringify({ error: 'invalid deal_id' });
+        const id = num(args.deal_id);
+        if (id === undefined || id <= 0) return JSON.stringify({ error: 'invalid deal_id' });
         const raw = await fetchV1(`/deals/${id}`);
         const obj = raw as { success?: boolean; data?: Record<string, unknown> };
         if (obj.data && typeof obj.data === 'object') {
@@ -160,6 +216,42 @@ export async function runPipedriveTool(name: string, input: unknown): Promise<st
           return row.item ? slimDeal(row.item) : it;
         });
         return JSON.stringify({ success: true, count: items.length, deals });
+      }
+      case 'pipedrive_add_deal_note': {
+        const dealId = num(args.deal_id);
+        if (dealId === undefined || dealId <= 0) return JSON.stringify({ error: 'invalid deal_id' });
+        const rawContent = typeof args.content === 'string' ? args.content : '';
+        if (!rawContent.trim()) return JSON.stringify({ error: 'content is required' });
+        const body: Record<string, unknown> = {
+          deal_id: dealId,
+          content: noteContentToHtml(rawContent),
+        };
+        const uid = num(args.user_id);
+        if (uid !== undefined) body.user_id = uid;
+        const out = await pipedrivePostJson(1, '/notes', body);
+        return JSON.stringify(out);
+      }
+      case 'pipedrive_create_activity': {
+        const dealId = num(args.deal_id);
+        if (dealId === undefined || dealId <= 0) return JSON.stringify({ error: 'invalid deal_id' });
+        const subject = typeof args.subject === 'string' ? args.subject.trim() : '';
+        if (!subject) return JSON.stringify({ error: 'subject is required' });
+        const type = typeof args.type === 'string' ? args.type.trim().toLowerCase() : '';
+        const allowed = ['call', 'meeting', 'task', 'email', 'deadline', 'lunch'];
+        if (!type || !allowed.includes(type)) {
+          return JSON.stringify({ error: `type must be one of: ${allowed.join(', ')}` });
+        }
+        const body: Record<string, unknown> = { deal_id: dealId, subject, type };
+        if (typeof args.note === 'string' && args.note.trim()) body.note = args.note.trim().slice(0, 10000);
+        if (typeof args.due_date === 'string' && args.due_date.trim()) body.due_date = args.due_date.trim();
+        if (typeof args.due_time === 'string' && args.due_time.trim()) body.due_time = args.due_time.trim();
+        if (typeof args.duration === 'string' && args.duration.trim()) body.duration = args.duration.trim();
+        if (args.done === true) body.done = true;
+        if (args.done === false) body.done = false;
+        const oid = num(args.owner_id);
+        if (oid !== undefined) body.owner_id = oid;
+        const out = await pipedrivePostJson(2, '/activities', body);
+        return JSON.stringify(out);
       }
       default:
         return JSON.stringify({ error: `unknown pipedrive tool: ${name}` });
@@ -204,6 +296,43 @@ export function pipedriveAnthropicTools(): Anthropic.Tool[] {
           exact_match: { type: 'boolean' },
         },
         required: ['term'],
+      },
+    },
+    {
+      name: 'pipedrive_add_deal_note',
+      description:
+        'Add a note to a deal timeline. Plain text is converted to safe HTML. Use when Sam logs context from iMessage.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          deal_id: { type: 'number' },
+          content: { type: 'string' },
+          user_id: { type: 'number', description: 'Optional author (admin)' },
+        },
+        required: ['deal_id', 'content'],
+      },
+    },
+    {
+      name: 'pipedrive_create_activity',
+      description:
+        'Create an activity on a deal (call, meeting, task, email, deadline, lunch). Optional due_date YYYY-MM-DD, due_time HH:MM, done for completed logs.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          deal_id: { type: 'number' },
+          subject: { type: 'string' },
+          type: {
+            type: 'string',
+            enum: ['call', 'meeting', 'task', 'email', 'deadline', 'lunch'],
+          },
+          note: { type: 'string' },
+          due_date: { type: 'string' },
+          due_time: { type: 'string' },
+          duration: { type: 'string' },
+          done: { type: 'boolean' },
+          owner_id: { type: 'number' },
+        },
+        required: ['deal_id', 'subject', 'type'],
       },
     },
   ];
